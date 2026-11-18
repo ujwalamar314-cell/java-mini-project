@@ -1,0 +1,31 @@
+# Build output
+out/
+bin/
+*.class
+
+# Packaged artifacts
+*.jar
+*.war
+*.ear
+
+# Script scratch files
+.sources.txt
+sources.txt
+
+# IDE / editor
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+nbproject/private/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local sandbox / tooling
+.arena/
