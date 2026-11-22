@@ -1,188 +1,718 @@
 package atm;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.GridLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPasswordField;
+import javax.swing.JTextField;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 
-/**
- * Driver class - run this one.
- *
- * It builds a small bank (accounts + cards), ONE shared cash vault, ONE shared
- * authenticator and THREE ATM threads, loads each ATM with a mix of valid and
- * invalid customer requests, starts them all, waits for them with
- * {@code join()}, and then prints a summary that can only be trusted because
- * every thread has finished.
- */
-public class ATMSystem {
+interface Authenticator {
+    boolean verifyPin(Card card, String enteredPin);
+}
 
-    /** Opening cash in the shared vault. */
-    private static final double VAULT_CASH = 12000.0;
-
-    public static void main(String[] args) throws InterruptedException {
-
-        /* ---------------- shared, thread-safe resources ---------------- */
-
-        CashVault vault = new CashVault(VAULT_CASH);
-        Authenticator authenticator = new PinAuthenticator();
-        TransactionLog log = new TransactionLog();
-
-        /* ---------------- accounts and cards ----------------
-         * Each card is built with a DIFFERENT constructor, to exercise the
-         * constructor overloading declared in Card.
-         */
-
-        Account ashaAccount = new Account("Asha Rao", 25000.0, 10000.0);
-        Card ashaCard = new Card("4000123456781234", "1234", ashaAccount);        // ctor 1
-
-        Account vikramAccount = new Account("Vikram Shetty", 8000.0, 5000.0);
-        Card vikramCard = new Card(4111222233334444L, 4321, vikramAccount);        // ctor 3 (numeric)
-
-        Account meeraAccount = new Account("Meera Nair", 3000.0, 10000.0);
-        Card meeraCard = new Card("4222987654321098", "9999", meeraAccount);       // ctor 1
-
-        Account kiranAccount = new Account("Kiran Kumar", 50000.0, 40000.0);
-        Card kiranCard = new Card("4444555566667777", "2468", kiranAccount);       // ctor 1
-
-        Card freshCard = new Card("4333000011112222", "0000");                     // ctor 2 (opens a zero-balance account)
-        Card guestCard = new Card();                                               // ctor 4 (no arguments)
-
-        List<Account> accounts = new ArrayList<Account>();
-        accounts.add(ashaAccount);
-        accounts.add(vikramAccount);
-        accounts.add(meeraAccount);
-        accounts.add(kiranAccount);
-        accounts.add(freshCard.getAccount());
-        accounts.add(guestCard.getAccount());
-
-        printHeader(vault, authenticator);
-
-        /* ---------------- three ATMs, three threads ---------------- */
-
-        ATM atm1 = new ATM("ATM-1", vault, authenticator, log);
-        ATM atm2 = new ATM("ATM-2", vault, authenticator, log);
-        ATM atm3 = new ATM("ATM-3", vault, authenticator, log);
-
-        // ATM-1: one clean withdrawal, then the same customer over the daily limit.
-        atm1.addWithdrawal(ashaCard, "1234", 5000.0);      // approved
-        atm1.addWithdrawal(ashaCard, "1234", 6000.0);      // blocked: daily limit (Rs.5000 left)
-        atm1.addBalanceEnquiry(ashaCard, "1234");          // approved
-
-        // ATM-2: valid withdrawal, over-limit retry, and an account too small to cover it.
-        atm2.addWithdrawal(vikramCard, "4321", 4000.0);    // approved
-        atm2.addWithdrawal(vikramCard, "4321", 3000.0);    // blocked: daily limit (Rs.1000 left)
-        atm2.addWithdrawal(meeraCard, "9999", 5000.0);     // blocked: insufficient balance
-        atm2.addBalanceEnquiry(meeraCard, "9999");         // approved
-
-        // ATM-3: a big draw on the shared vault, a wrong PIN, and a brand new empty account.
-        atm3.addWithdrawal(kiranCard, "2468", 9000.0);     // competes for the shared vault
-        atm3.addWithdrawal(guestCard, "1111", 500.0);      // blocked: invalid PIN
-        atm3.addWithdrawal(freshCard, "0000", 500.0);      // blocked: insufficient balance
-        atm3.addBalanceEnquiry(kiranCard, "2468");         // approved
-
-        List<ATM> atms = new ArrayList<ATM>();
-        atms.add(atm1);
-        atms.add(atm2);
-        atms.add(atm3);
-
-        /* ---------------- start them all, then join them all ---------------- */
-
-        System.out.println();
-        System.out.println("--- " + atms.size() + " ATM threads starting; all share one synchronized vault ---");
-        for (ATM atm : atms) {
-            atm.start();                    // each ATM now runs on its own thread
+class PinAuthenticator implements Authenticator {
+    @Override
+    public boolean verifyPin(Card card, String enteredPin) {
+        if (card != null && enteredPin != null) {
+            return enteredPin.equals(card.getPin());
         }
-        for (ATM atm : atms) {
-            atm.join();                     // main thread waits for this ATM to finish
-        }
-        System.out.println("--- all ATM threads have finished (join returned) ---");
+        return false;
+    }
+}
 
-        printSummary(atms, vault, authenticator, log, accounts);
+class InvalidPinException extends Exception {
+    public InvalidPinException(String message) {
+        super(message);
+    }
+}
+
+class DailyLimitExceededException extends Exception {
+    public DailyLimitExceededException(String message) {
+        super(message);
+    }
+}
+
+class Account {
+    private String accountNumber;
+    private double balance;
+    private double dailyLimit;
+    private double withdrawnToday;
+
+    public Account(String accountNumber, double balance, double dailyLimit) {
+        this.accountNumber = accountNumber;
+        this.balance = balance;
+        this.dailyLimit = dailyLimit;
+        this.withdrawnToday = 0.0;
     }
 
-    private static void printHeader(CashVault vault, Authenticator authenticator) {
-        System.out.println("==============================================================");
-        System.out.println("        MULTI-THREADED ATM SYSTEM  (package atm)");
-        System.out.println("==============================================================");
-        System.out.println("Shared cash vault   : Rs." + money(vault.getCashAvailable()));
-        System.out.println("Shared authenticator: " + authenticator.getClass().getName());
-        System.out.println("Every mutating method of CashVault, Account,");
-        System.out.println("PinAuthenticator and TransactionLog is synchronized.");
-        System.out.println("==============================================================");
+    public synchronized void withdraw(double amount) throws DailyLimitExceededException, Exception {
+        if (withdrawnToday + amount > dailyLimit) {
+            throw new DailyLimitExceededException("Daily limit exceeded! Daily Limit: Rs." + dailyLimit 
+                + ", Withdrawn Today: Rs." + withdrawnToday + ", Attempted: Rs." + amount);
+        }
+        if (amount > balance) {
+            throw new Exception("Insufficient account balance! Available: Rs." + balance);
+        }
+        balance -= amount;
+        withdrawnToday += amount;
     }
 
-    private static void printSummary(List<ATM> atms, CashVault vault,
-                                     Authenticator authenticator, TransactionLog log,
-                                     List<Account> accounts) {
-        System.out.println();
-        System.out.println("========================= SUMMARY ==========================");
-
-        System.out.println("Per-ATM thread results:");
-        int totalServed = 0;
-        int totalBlocked = 0;
-        for (ATM atm : atms) {
-            System.out.println(String.format("  %-7s thread=%-7s state=%-12s approved=%d blocked=%d",
-                    new Object[] {
-                            atm.getAtmId(),
-                            atm.getName(),
-                            atmStateName(atm),
-                            Integer.valueOf(atm.getServedCount()),
-                            Integer.valueOf(atm.getBlockedCount())
-                    }));
-            totalServed = totalServed + atm.getServedCount();
-            totalBlocked = totalBlocked + atm.getBlockedCount();
-        }
-
-        System.out.println();
-        System.out.println("Shared cash vault after all threads finished:");
-        System.out.println("  opening cash    : Rs." + money(vault.getOpeningCash()));
-        System.out.println("  cash dispensed  : Rs." + money(vault.getTotalDispensed())
-                + "  (" + vault.getDispenseCount() + " dispense call(s))");
-        System.out.println("  cash remaining  : Rs." + money(vault.getCashAvailable()));
-        System.out.println("  vault invariant : dispensed + remaining == opening -> "
-                + (Math.abs((vault.getTotalDispensed() + vault.getCashAvailable())
-                        - vault.getOpeningCash()) < 0.005 ? "HOLDS" : "VIOLATED"));
-
-        System.out.println();
-        System.out.println("Accounts:");
-        for (Account account : accounts) {
-            System.out.println(String.format(
-                    "  %-26s balance Rs.%12s   withdrawn today Rs.%10s   limit Rs.%10s",
-                    new Object[] {
-                            account.getHolder(),
-                            money(account.getBalance()),
-                            money(account.getWithdrawnToday()),
-                            money(account.getDailyLimit())
-                    }));
-        }
-
-        System.out.println();
-        System.out.println("PIN verification attempts : " + attemptsOf(authenticator));
-        System.out.println("Transactions approved     : " + log.getApprovedCount());
-        System.out.println("Transactions blocked      : " + log.getBlockedCount());
-        System.out.println("Total transactions        : " + log.getTotalCount()
-                + "  (per-ATM counters agree: "
-                + ((totalServed == log.getApprovedCount() && totalBlocked == log.getBlockedCount())
-                        ? "yes" : "no") + ")");
-        System.out.println("============================================================");
+    public synchronized double getBalance() {
+        return balance;
     }
 
-    /** Reads the authenticator's counters when the concrete class exposes them. */
-    private static String attemptsOf(Authenticator authenticator) {
-        if (authenticator instanceof PinAuthenticator) {
-            PinAuthenticator pin = (PinAuthenticator) authenticator;
-            return pin.getTotalAttempts() + " (" + pin.getSuccessCount() + " ok, "
-                    + pin.getFailureCount() + " rejected)";
-        }
-        return "not reported by " + authenticator.getClass().getName();
+    public synchronized double getDailyLimit() {
+        return dailyLimit;
     }
 
-    private static String atmStateName(ATM atm) {
-        if (!atm.isAlive() && atm.getServedCount() + atm.getBlockedCount() > 0) {
-            return "TERMINATED";
-        }
-        return atm.isAlive() ? "RUNNABLE" : "NEW";
+    public synchronized double getWithdrawnToday() {
+        return withdrawnToday;
     }
 
-    private static String money(double amount) {
-        return String.format("%,.2f", Double.valueOf(amount));
+    public String getAccountNumber() {
+        return accountNumber;
+    }
+}
+
+class Card {
+    private String cardNumber;
+    private String pin;
+    private Account account;
+
+    public Card(String cardNumber, String pin, Account account) {
+        this.cardNumber = cardNumber;
+        this.pin = pin;
+        this.account = account;
+    }
+
+    public Card(String cardNumber, String pin) {
+        this(cardNumber, pin, new Account(cardNumber, 5000.0, 5000.0));
+    }
+
+    public Card() {
+        this("0", "0000", new Account("0", 1000.0, 3000.0));
+    }
+
+    public String getCardNumber() {
+        return cardNumber;
+    }
+
+    public String getPin() {
+        return pin;
+    }
+
+    public Account getAccount() {
+        return account;
+    }
+}
+
+abstract class ATMOperation {
+    protected Card card;
+    protected String enteredPin;
+    protected Authenticator authenticator;
+
+    public ATMOperation(Card card, String enteredPin, Authenticator authenticator) {
+        this.card = card;
+        this.enteredPin = enteredPin;
+        this.authenticator = authenticator;
+    }
+
+    public abstract String execute() throws InvalidPinException, DailyLimitExceededException, Exception;
+}
+
+class Withdrawal extends ATMOperation {
+    private double amount;
+    private CashVault vault;
+
+    public Withdrawal(Card card, String enteredPin, Authenticator authenticator, double amount, CashVault vault) {
+        super(card, enteredPin, authenticator);
+        this.amount = amount;
+        this.vault = vault;
+    }
+
+    @Override
+    public String execute() throws InvalidPinException, DailyLimitExceededException, Exception {
+        if (!authenticator.verifyPin(card, enteredPin)) {
+            throw new InvalidPinException("Invalid PIN entered for Card: " + card.getCardNumber());
+        }
+        card.getAccount().withdraw(amount);
+        vault.dispense(amount);
+        return "Withdrawal of Rs." + amount + " successful!\nRemaining Account Balance: Rs." + card.getAccount().getBalance();
+    }
+}
+
+class BalanceEnquiry extends ATMOperation {
+    public BalanceEnquiry(Card card, String enteredPin, Authenticator authenticator) {
+        super(card, enteredPin, authenticator);
+    }
+
+    @Override
+    public String execute() throws InvalidPinException {
+        if (!authenticator.verifyPin(card, enteredPin)) {
+            throw new InvalidPinException("Invalid PIN entered for Card: " + card.getCardNumber());
+        }
+        Account acc = card.getAccount();
+        double remainingLimit = acc.getDailyLimit() - acc.getWithdrawnToday();
+        return "Current Balance: Rs." + acc.getBalance() + "\nDaily Limit Left Today: Rs." + remainingLimit;
+    }
+}
+
+class CashVault {
+    private double balance;
+
+    public CashVault(double initialCash) {
+        this.balance = initialCash;
+    }
+
+    public synchronized void dispense(double amount) throws Exception {
+        if (amount > balance) {
+            throw new Exception("Cash vault depleted! Machine has only Rs." + balance + " available.");
+        }
+        balance -= amount;
+    }
+
+    public synchronized double getBalance() {
+        return balance;
+    }
+}
+
+class ATM extends Thread {
+    private String atmId;
+    private CashVault vault;
+    private ATMOperation operation;
+    private String resultMessage;
+    private Exception executionException;
+
+    public ATM(String atmId, CashVault vault, ATMOperation operation) {
+        super(atmId);
+        this.atmId = atmId;
+        this.vault = vault;
+        this.operation = operation;
+    }
+
+    @Override
+    public void run() {
+        try {
+            Thread.sleep(300);
+            resultMessage = operation.execute();
+        } catch (Exception ex) {
+            executionException = ex;
+        }
+    }
+
+    public String getResultMessage() {
+        return resultMessage;
+    }
+
+    public Exception getExecutionException() {
+        return executionException;
+    }
+
+    public String getAtmId() {
+        return atmId;
+    }
+}
+
+public class ATMSystem extends JFrame {
+
+    private CardLayout cardLayout;
+    private JPanel containerPanel;
+
+    private CashVault vault;
+    private Authenticator authenticator;
+
+    private Card[] storedCards;
+    private int storedCardCount;
+
+    private Card currentCard;
+    private String currentAtmId;
+
+    private JTextField regCardNumField;
+    private JPasswordField regPinField;
+    private JTextField regBalanceField;
+    private JTextField regLimitField;
+
+    private JTextField loginCardNumField;
+    private JPasswordField loginPinField;
+
+    private JLabel dashWelcomeLabel;
+    private JLabel dashVaultLabel;
+    private JTextField withdrawAmountField;
+
+    public ATMSystem() {
+        super("Bank ATM System");
+        vault = new CashVault(50000.0);
+        authenticator = new PinAuthenticator();
+        storedCards = new Card[100];
+        storedCardCount = 0;
+
+        Account sampleAcc = new Account("0", 10000.0, 5000.0);
+        storeCard(new Card("0", "1234", sampleAcc));
+
+        initUI();
+    }
+
+    private void storeCard(Card card) {
+        if (storedCardCount < storedCards.length) {
+            storedCards[storedCardCount] = card;
+            storedCardCount++;
+        }
+    }
+
+    private Card findCard(String cardNum) {
+        try {
+            int index = Integer.parseInt(cardNum.trim());
+            if (index >= 0 && index < storedCardCount) {
+                return storedCards[index];
+            }
+        } catch (NumberFormatException e) {
+        }
+        return null;
+    }
+
+    private void initUI() {
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(520, 480);
+        setLocationRelativeTo(null);
+        setResizable(false);
+
+        cardLayout = new CardLayout();
+        containerPanel = new JPanel(cardLayout);
+
+        containerPanel.add(createHomeScreen(), "HOME");
+        containerPanel.add(createRegisterScreen(), "REGISTER");
+        containerPanel.add(createLoginScreen(), "LOGIN");
+        containerPanel.add(createDashboardScreen(), "DASHBOARD");
+
+        add(containerPanel);
+    }
+
+    private JPanel createHomeScreen() {
+        JPanel panel = new JPanel(new BorderLayout(10, 20));
+        panel.setBorder(BorderFactory.createEmptyBorder(40, 40, 40, 40));
+        panel.setBackground(new Color(245, 247, 250));
+
+        JPanel header = new JPanel(new GridLayout(2, 1, 5, 5));
+        header.setOpaque(false);
+        JLabel title = new JLabel("Welcome to the Bank ATM", SwingConstants.CENTER);
+        title.setFont(new Font("Segoe UI", Font.BOLD, 22));
+        title.setForeground(new Color(20, 40, 80));
+
+        JLabel subtitle = new JLabel("Please select an option below", SwingConstants.CENTER);
+        subtitle.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        subtitle.setForeground(Color.GRAY);
+        header.add(title);
+        header.add(subtitle);
+        panel.add(header, BorderLayout.NORTH);
+
+        JPanel btnPanel = new JPanel(new GridLayout(2, 1, 15, 15));
+        btnPanel.setOpaque(false);
+        btnPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+        JButton btnGoRegister = new JButton("1. Create New Account / Card");
+        btnGoRegister.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        btnGoRegister.setBackground(new Color(35, 120, 75));
+        btnGoRegister.setForeground(Color.WHITE);
+        btnGoRegister.setFocusPainted(false);
+        btnGoRegister.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                regCardNumField.setText(String.valueOf(storedCardCount));
+                cardLayout.show(containerPanel, "REGISTER");
+            }
+        });
+
+        JButton btnGoLogin = new JButton("2. Login to ATM");
+        btnGoLogin.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        btnGoLogin.setBackground(new Color(30, 90, 160));
+        btnGoLogin.setForeground(Color.WHITE);
+        btnGoLogin.setFocusPainted(false);
+        btnGoLogin.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                cardLayout.show(containerPanel, "LOGIN");
+            }
+        });
+
+        btnPanel.add(btnGoRegister);
+        btnPanel.add(btnGoLogin);
+        panel.add(btnPanel, BorderLayout.CENTER);
+
+        JLabel footer = new JLabel("ATM Shared Synchronized Cash Vault", SwingConstants.CENTER);
+        footer.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+        footer.setForeground(Color.GRAY);
+        panel.add(footer, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private JPanel createRegisterScreen() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 30, 20, 30));
+        panel.setBackground(new Color(245, 247, 250));
+
+        JLabel title = new JLabel("Create Account & Card", SwingConstants.CENTER);
+        title.setFont(new Font("Segoe UI", Font.BOLD, 20));
+        title.setForeground(new Color(20, 40, 80));
+        panel.add(title, BorderLayout.NORTH);
+
+        JPanel form = new JPanel(new GridLayout(4, 2, 8, 12));
+        form.setOpaque(false);
+        form.setBorder(BorderFactory.createEmptyBorder(15, 10, 15, 10));
+
+        form.add(new JLabel("Card Number:"));
+        regCardNumField = new JTextField(String.valueOf(storedCardCount));
+        regCardNumField.setEditable(false);
+        regCardNumField.setBackground(new Color(235, 235, 235));
+        form.add(regCardNumField);
+
+        form.add(new JLabel("4-Digit PIN:"));
+        regPinField = new JPasswordField();
+        form.add(regPinField);
+
+        form.add(new JLabel("Initial Deposit (Rs.):"));
+        regBalanceField = new JTextField("5000");
+        form.add(regBalanceField);
+
+        form.add(new JLabel("Daily Limit (Rs.):"));
+        regLimitField = new JTextField("5000");
+        form.add(regLimitField);
+
+        panel.add(form, BorderLayout.CENTER);
+
+        JPanel btnPanel = new JPanel(new GridLayout(1, 2, 10, 0));
+        btnPanel.setOpaque(false);
+
+        JButton btnSubmit = new JButton("Create Account");
+        btnSubmit.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btnSubmit.setBackground(new Color(35, 120, 75));
+        btnSubmit.setForeground(Color.WHITE);
+        btnSubmit.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handleRegister();
+            }
+        });
+
+        JButton btnBack = new JButton("Back");
+        btnBack.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        btnBack.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                cardLayout.show(containerPanel, "HOME");
+            }
+        });
+
+        btnPanel.add(btnSubmit);
+        btnPanel.add(btnBack);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private JPanel createLoginScreen() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(25, 30, 25, 30));
+        panel.setBackground(new Color(245, 247, 250));
+
+        JLabel title = new JLabel("ATM Login", SwingConstants.CENTER);
+        title.setFont(new Font("Segoe UI", Font.BOLD, 20));
+        title.setForeground(new Color(20, 40, 80));
+        panel.add(title, BorderLayout.NORTH);
+
+        JPanel form = new JPanel(new GridLayout(2, 2, 8, 14));
+        form.setOpaque(false);
+        form.setBorder(BorderFactory.createEmptyBorder(25, 10, 25, 10));
+
+        form.add(new JLabel("Card Number:"));
+        loginCardNumField = new JTextField();
+        form.add(loginCardNumField);
+
+        form.add(new JLabel("Enter 4-Digit PIN:"));
+        loginPinField = new JPasswordField();
+        form.add(loginPinField);
+
+        panel.add(form, BorderLayout.CENTER);
+
+        JPanel btnPanel = new JPanel(new GridLayout(1, 2, 10, 0));
+        btnPanel.setOpaque(false);
+
+        JButton btnLogin = new JButton("Login");
+        btnLogin.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btnLogin.setBackground(new Color(30, 90, 160));
+        btnLogin.setForeground(Color.WHITE);
+        btnLogin.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handleLogin();
+            }
+        });
+
+        JButton btnBack = new JButton("Back");
+        btnBack.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        btnBack.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                cardLayout.show(containerPanel, "HOME");
+            }
+        });
+
+        btnPanel.add(btnLogin);
+        btnPanel.add(btnBack);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private JPanel createDashboardScreen() {
+        JPanel panel = new JPanel(new BorderLayout(10, 15));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 30, 20, 30));
+        panel.setBackground(new Color(245, 247, 250));
+
+        JPanel topSection = new JPanel(new GridLayout(2, 1, 4, 4));
+        topSection.setOpaque(false);
+        dashWelcomeLabel = new JLabel("Welcome!", SwingConstants.CENTER);
+        dashWelcomeLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        dashWelcomeLabel.setForeground(new Color(20, 40, 80));
+
+        dashVaultLabel = new JLabel("Vault Cash: Rs. 50,000", SwingConstants.CENTER);
+        dashVaultLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        dashVaultLabel.setForeground(new Color(35, 120, 75));
+
+        topSection.add(dashWelcomeLabel);
+        topSection.add(dashVaultLabel);
+        panel.add(topSection, BorderLayout.NORTH);
+
+        JPanel centerPanel = new JPanel(new GridLayout(2, 1, 10, 10));
+        centerPanel.setOpaque(false);
+
+        JPanel balancePanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        balancePanel.setBorder(BorderFactory.createTitledBorder("Check Account Balance"));
+        JButton btnCheckBalance = new JButton("Check Balance");
+        btnCheckBalance.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btnCheckBalance.setBackground(new Color(40, 90, 160));
+        btnCheckBalance.setForeground(Color.WHITE);
+        btnCheckBalance.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handleCheckBalance();
+            }
+        });
+        balancePanel.add(btnCheckBalance);
+        centerPanel.add(balancePanel);
+
+        JPanel withdrawPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+        withdrawPanel.setBorder(BorderFactory.createTitledBorder("Cash Withdrawal"));
+        withdrawPanel.add(new JLabel("Amount (Rs.):"));
+        withdrawAmountField = new JTextField("1000", 8);
+        withdrawPanel.add(withdrawAmountField);
+
+        JButton btnWithdraw = new JButton("Withdraw Cash");
+        btnWithdraw.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btnWithdraw.setBackground(new Color(35, 120, 75));
+        btnWithdraw.setForeground(Color.WHITE);
+        btnWithdraw.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handleWithdraw();
+            }
+        });
+        withdrawPanel.add(btnWithdraw);
+        centerPanel.add(withdrawPanel);
+
+        panel.add(centerPanel, BorderLayout.CENTER);
+
+        JButton btnLogout = new JButton("End Session");
+        btnLogout.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        btnLogout.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                currentCard = null;
+                currentAtmId = null;
+                loginPinField.setText("");
+                cardLayout.show(containerPanel, "HOME");
+            }
+        });
+        panel.add(btnLogout, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private void handleRegister() {
+        String cardNum = String.valueOf(storedCardCount);
+        String pin = new String(regPinField.getPassword()).trim();
+        String balStr = regBalanceField.getText().trim();
+        String limitStr = regLimitField.getText().trim();
+
+        if (pin.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please enter a 4-Digit PIN.", "Input Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        try {
+            Card card;
+            if (!balStr.isEmpty() && !limitStr.isEmpty()) {
+                double bal = Double.parseDouble(balStr);
+                double limit = Double.parseDouble(limitStr);
+                Account acc = new Account(cardNum, bal, limit);
+                card = new Card(cardNum, pin, acc);
+            } else {
+                card = new Card(cardNum, pin);
+            }
+
+            storeCard(card);
+            JOptionPane.showMessageDialog(this, "Card and Account created successfully!\nYour Card Number is: " + cardNum 
+                + "\nPlease use this Card Number to login.", "Account Created", JOptionPane.INFORMATION_MESSAGE);
+            regPinField.setText("");
+            cardLayout.show(containerPanel, "HOME");
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Invalid number entered for Balance or Limit.", "Input Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void handleLogin() {
+        String cardNum = loginCardNumField.getText().trim();
+        String enteredPin = new String(loginPinField.getPassword()).trim();
+        currentAtmId = "ATM";
+
+        if (cardNum.isEmpty() || enteredPin.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please enter Card Number and PIN.", "Input Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        Card card = findCard(cardNum);
+        if (card == null) {
+            JOptionPane.showMessageDialog(this, "Card number " + cardNum + " not found!", "Login Failed", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        try {
+            if (!authenticator.verifyPin(card, enteredPin)) {
+                throw new InvalidPinException("Invalid PIN entered for Card " + cardNum + " - Access Blocked!");
+            }
+
+            currentCard = card;
+            dashWelcomeLabel.setText("Active Card: " + currentCard.getCardNumber());
+            dashVaultLabel.setText("Cash Balance: Rs." + vault.getBalance());
+            cardLayout.show(containerPanel, "DASHBOARD");
+        } catch (InvalidPinException e) {
+            JOptionPane.showMessageDialog(this, e.getMessage(), "InvalidPinException", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private String promptPin() {
+        JPasswordField pinField = new JPasswordField();
+        Object[] message = {
+            "Enter 4-Digit PIN:", pinField
+        };
+        int option = JOptionPane.showConfirmDialog(this, message, "PIN Required", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (option == JOptionPane.OK_OPTION) {
+            return new String(pinField.getPassword()).trim();
+        }
+        return null;
+    }
+
+    private void handleCheckBalance() {
+        if (currentCard == null) {
+            return;
+        }
+
+        String pin = promptPin();
+        if (pin == null) {
+            return;
+        }
+
+        BalanceEnquiry op = new BalanceEnquiry(currentCard, pin, authenticator);
+        ATM atmThread = new ATM(currentAtmId, vault, op);
+
+        try {
+            atmThread.start();
+            atmThread.join();
+
+            Exception ex = atmThread.getExecutionException();
+            if (ex != null) {
+                if (ex instanceof InvalidPinException) {
+                    JOptionPane.showMessageDialog(this, ex.getMessage(), "InvalidPinException", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, ex.getMessage(), "Operation Blocked", JOptionPane.ERROR_MESSAGE);
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, atmThread.getResultMessage(), "Balance Enquiry Receipt", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (InterruptedException ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    private void handleWithdraw() {
+        if (currentCard == null) {
+            return;
+        }
+
+        double amount;
+        try {
+            amount = Double.parseDouble(withdrawAmountField.getText().trim());
+            if (amount <= 0) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid amount greater than 0.", "Input Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Invalid amount entered.", "Input Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String pin = promptPin();
+        if (pin == null) {
+            return;
+        }
+
+        Withdrawal op = new Withdrawal(currentCard, pin, authenticator, amount, vault);
+        ATM atmThread = new ATM(currentAtmId, vault, op);
+
+        try {
+            atmThread.start();
+            atmThread.join();
+
+            Exception ex = atmThread.getExecutionException();
+            if (ex != null) {
+                if (ex instanceof DailyLimitExceededException) {
+                    JOptionPane.showMessageDialog(this, ex.getMessage(), "DailyLimitExceededException", JOptionPane.ERROR_MESSAGE);
+                } else if (ex instanceof InvalidPinException) {
+                    JOptionPane.showMessageDialog(this, ex.getMessage(), "InvalidPinException", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, ex.getMessage(), "Transaction Blocked", JOptionPane.ERROR_MESSAGE);
+                }
+            } else {
+                dashVaultLabel.setText("Cash Balance: Rs." + vault.getBalance());
+                JOptionPane.showMessageDialog(this, atmThread.getResultMessage(), "Withdrawal Receipt", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                ATMSystem frame = new ATMSystem();
+                frame.setVisible(true);
+            }
+        });
     }
 }
