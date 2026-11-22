@@ -254,7 +254,6 @@ public class ATMSystem extends JFrame {
     private JPasswordField loginPinField;
 
     private JLabel dashWelcomeLabel;
-    private JLabel dashVaultLabel;
     private JTextField withdrawAmountField;
 
     public ATMSystem() {
@@ -513,19 +512,11 @@ public class ATMSystem extends JFrame {
         panel.setBorder(BorderFactory.createEmptyBorder(20, 30, 20, 30));
         panel.setBackground(new Color(245, 247, 250));
 
-        JPanel topSection = new JPanel(new GridLayout(2, 1, 4, 4));
-        topSection.setOpaque(false);
         dashWelcomeLabel = new JLabel("Welcome!", SwingConstants.CENTER);
-        dashWelcomeLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        dashWelcomeLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
         dashWelcomeLabel.setForeground(new Color(20, 40, 80));
-
-        dashVaultLabel = new JLabel("Vault Cash: Rs. 50,000", SwingConstants.CENTER);
-        dashVaultLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        dashVaultLabel.setForeground(new Color(35, 120, 75));
-
-        topSection.add(dashWelcomeLabel);
-        topSection.add(dashVaultLabel);
-        panel.add(topSection, BorderLayout.NORTH);
+        dashWelcomeLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
+        panel.add(dashWelcomeLabel, BorderLayout.NORTH);
 
         JPanel centerPanel = new JPanel(new GridLayout(2, 1, 10, 10));
         centerPanel.setOpaque(false);
@@ -639,7 +630,6 @@ public class ATMSystem extends JFrame {
 
             currentCard = card;
             dashWelcomeLabel.setText("Active Card: " + currentCard.getCardNumber());
-            dashVaultLabel.setText("Cash Balance: Rs." + vault.getBalance());
             cardLayout.show(containerPanel, "DASHBOARD");
         } catch (InvalidPinException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "InvalidPinException", JOptionPane.ERROR_MESSAGE);
@@ -729,7 +719,6 @@ public class ATMSystem extends JFrame {
                     JOptionPane.showMessageDialog(this, ex.getMessage(), "Transaction Blocked", JOptionPane.ERROR_MESSAGE);
                 }
             } else {
-                dashVaultLabel.setText("Cash Balance: Rs." + vault.getBalance());
                 JOptionPane.showMessageDialog(this, atmThread.getResultMessage(), "Withdrawal Receipt", JOptionPane.INFORMATION_MESSAGE);
             }
         } catch (InterruptedException e) {
