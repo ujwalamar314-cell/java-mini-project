@@ -6,7 +6,10 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import javax.swing.BorderFactory;
@@ -273,7 +276,8 @@ public class ATMSystem extends JFrame {
 
     private Card findCard(String cardNum) {
         try {
-            int index = Integer.parseInt(cardNum.trim());
+            int cardNumInt = Integer.parseInt(cardNum.trim());
+            int index = cardNumInt - 1;
             if (index >= 0 && index < storedCardCount) {
                 return storedCards[index];
             }
@@ -329,7 +333,7 @@ public class ATMSystem extends JFrame {
         btnGoRegister.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                regCardNumField.setText(String.valueOf(storedCardCount));
+                regCardNumField.setText(String.valueOf(storedCardCount + 1));
                 cardLayout.show(containerPanel, "REGISTER");
             }
         });
@@ -368,29 +372,47 @@ public class ATMSystem extends JFrame {
         title.setForeground(new Color(20, 40, 80));
         panel.add(title, BorderLayout.NORTH);
 
-        JPanel form = new JPanel(new GridLayout(4, 2, 8, 12));
-        form.setOpaque(false);
-        form.setBorder(BorderFactory.createEmptyBorder(15, 10, 15, 10));
+        JPanel centerWrapper = new JPanel(new GridBagLayout());
+        centerWrapper.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(8, 8, 8, 8);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        form.add(new JLabel("Card Number:"));
-        regCardNumField = new JTextField(String.valueOf(storedCardCount));
+        gbc.gridx = 0; gbc.gridy = 0;
+        centerWrapper.add(new JLabel("Card Number:"), gbc);
+
+        gbc.gridx = 1; gbc.gridy = 0;
+        regCardNumField = new JTextField(String.valueOf(storedCardCount + 1), 15);
+        regCardNumField.setPreferredSize(new Dimension(180, 30));
         regCardNumField.setEditable(false);
         regCardNumField.setBackground(new Color(235, 235, 235));
-        form.add(regCardNumField);
+        centerWrapper.add(regCardNumField, gbc);
 
-        form.add(new JLabel("4-Digit PIN:"));
-        regPinField = new JPasswordField();
-        form.add(regPinField);
+        gbc.gridx = 0; gbc.gridy = 1;
+        centerWrapper.add(new JLabel("4-Digit PIN:"), gbc);
 
-        form.add(new JLabel("Initial Deposit (Rs.):"));
-        regBalanceField = new JTextField();
-        form.add(regBalanceField);
+        gbc.gridx = 1; gbc.gridy = 1;
+        regPinField = new JPasswordField(15);
+        regPinField.setPreferredSize(new Dimension(180, 30));
+        centerWrapper.add(regPinField, gbc);
 
-        form.add(new JLabel("Daily Limit (Rs.):"));
-        regLimitField = new JTextField();
-        form.add(regLimitField);
+        gbc.gridx = 0; gbc.gridy = 2;
+        centerWrapper.add(new JLabel("Initial Deposit (Rs.):"), gbc);
 
-        panel.add(form, BorderLayout.CENTER);
+        gbc.gridx = 1; gbc.gridy = 2;
+        regBalanceField = new JTextField(15);
+        regBalanceField.setPreferredSize(new Dimension(180, 30));
+        centerWrapper.add(regBalanceField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 3;
+        centerWrapper.add(new JLabel("Daily Limit (Rs.):"), gbc);
+
+        gbc.gridx = 1; gbc.gridy = 3;
+        regLimitField = new JTextField(15);
+        regLimitField.setPreferredSize(new Dimension(180, 30));
+        centerWrapper.add(regLimitField, gbc);
+
+        panel.add(centerWrapper, BorderLayout.CENTER);
 
         JPanel btnPanel = new JPanel(new GridLayout(1, 2, 10, 0));
         btnPanel.setOpaque(false);
@@ -432,19 +454,29 @@ public class ATMSystem extends JFrame {
         title.setForeground(new Color(20, 40, 80));
         panel.add(title, BorderLayout.NORTH);
 
-        JPanel form = new JPanel(new GridLayout(2, 2, 8, 14));
-        form.setOpaque(false);
-        form.setBorder(BorderFactory.createEmptyBorder(25, 10, 25, 10));
+        JPanel centerWrapper = new JPanel(new GridBagLayout());
+        centerWrapper.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(10, 8, 10, 8);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        form.add(new JLabel("Card Number:"));
-        loginCardNumField = new JTextField();
-        form.add(loginCardNumField);
+        gbc.gridx = 0; gbc.gridy = 0;
+        centerWrapper.add(new JLabel("Card Number:"), gbc);
 
-        form.add(new JLabel("Enter 4-Digit PIN:"));
-        loginPinField = new JPasswordField();
-        form.add(loginPinField);
+        gbc.gridx = 1; gbc.gridy = 0;
+        loginCardNumField = new JTextField(15);
+        loginCardNumField.setPreferredSize(new Dimension(180, 30));
+        centerWrapper.add(loginCardNumField, gbc);
 
-        panel.add(form, BorderLayout.CENTER);
+        gbc.gridx = 0; gbc.gridy = 1;
+        centerWrapper.add(new JLabel("Enter 4-Digit PIN:"), gbc);
+
+        gbc.gridx = 1; gbc.gridy = 1;
+        loginPinField = new JPasswordField(15);
+        loginPinField.setPreferredSize(new Dimension(180, 30));
+        centerWrapper.add(loginPinField, gbc);
+
+        panel.add(centerWrapper, BorderLayout.CENTER);
 
         JPanel btnPanel = new JPanel(new GridLayout(1, 2, 10, 0));
         btnPanel.setOpaque(false);
@@ -551,7 +583,7 @@ public class ATMSystem extends JFrame {
     }
 
     private void handleRegister() {
-        String cardNum = String.valueOf(storedCardCount);
+        String cardNum = String.valueOf(storedCardCount + 1);
         String pin = new String(regPinField.getPassword()).trim();
         String balStr = regBalanceField.getText().trim();
         String limitStr = regLimitField.getText().trim();
