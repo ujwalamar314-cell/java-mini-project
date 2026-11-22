@@ -75,6 +75,10 @@ class Account {
         withdrawnToday += amount;
     }
 
+    public synchronized void deposit(double amount) {
+        balance += amount;
+    }
+
     public synchronized double getBalance() {
         return balance;
     }
@@ -175,6 +179,27 @@ class BalanceEnquiry extends ATMOperation {
     }
 }
 
+class Deposit extends ATMOperation {
+    private double amount;
+    private CashVault vault;
+
+    public Deposit(Card card, String enteredPin, Authenticator authenticator, double amount, CashVault vault) {
+        super(card, enteredPin, authenticator);
+        this.amount = amount;
+        this.vault = vault;
+    }
+
+    @Override
+    public String execute() throws InvalidPinException, Exception {
+        if (!authenticator.verifyPin(card, enteredPin)) {
+            throw new InvalidPinException("Invalid PIN entered for Card: " + card.getCardNumber());
+        }
+        card.getAccount().deposit(amount);
+        vault.deposit(amount);
+        return "Deposit of Rs." + amount + " successful!\nUpdated Account Balance: Rs." + card.getAccount().getBalance();
+    }
+}
+
 class CashVault {
     private double balance;
 
@@ -187,6 +212,10 @@ class CashVault {
             throw new Exception("Cash vault depleted! Machine has only Rs." + balance + " available.");
         }
         balance -= amount;
+    }
+
+    public synchronized void deposit(double amount) {
+        balance += amount;
     }
 
     public synchronized double getBalance() {
@@ -254,6 +283,7 @@ public class ATMSystem extends JFrame {
     private JPasswordField loginPinField;
 
     private JLabel dashWelcomeLabel;
+    private JTextField depositAmountField;
     private JTextField withdrawAmountField;
 
     public ATMSystem() {
@@ -287,7 +317,7 @@ public class ATMSystem extends JFrame {
 
     private void initUI() {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(520, 480);
+        setSize(520, 560);
         setLocationRelativeTo(null);
         setResizable(false);
 
@@ -518,7 +548,7 @@ public class ATMSystem extends JFrame {
         dashWelcomeLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
         panel.add(dashWelcomeLabel, BorderLayout.NORTH);
 
-        JPanel centerPanel = new JPanel(new GridLayout(2, 1, 10, 10));
+        JPanel centerPanel = new JPanel(new GridLayout(3, 1, 10, 10));
         centerPanel.setOpaque(false);
 
         JPanel balancePanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
@@ -535,6 +565,25 @@ public class ATMSystem extends JFrame {
         });
         balancePanel.add(btnCheckBalance);
         centerPanel.add(balancePanel);
+
+        JPanel depositPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+        depositPanel.setBorder(BorderFactory.createTitledBorder("Cash Deposit"));
+        depositPanel.add(new JLabel("Amount (Rs.):"));
+        depositAmountField = new JTextField(8);
+        depositPanel.add(depositAmountField);
+
+        JButton btnDeposit = new JButton("Deposit Cash");
+        btnDeposit.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btnDeposit.setBackground(new Color(30, 120, 75));
+        btnDeposit.setForeground(Color.WHITE);
+        btnDeposit.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handleDeposit();
+            }
+        });
+        depositPanel.add(btnDeposit);
+        centerPanel.add(depositPanel);
 
         JPanel withdrawPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
         withdrawPanel.setBorder(BorderFactory.createTitledBorder("Cash Withdrawal"));
@@ -573,27 +622,49 @@ public class ATMSystem extends JFrame {
         return panel;
     }
 
+    private boolean isValidPin(String pin) {
+        if (pin == null || pin.length() != 4) {
+            return false;
+        }
+        for (int i = 0; i < 4; i++) {
+            if (!Character.isDigit(pin.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void handleRegister() {
         String cardNum = String.valueOf(storedCardCount + 1);
         String pin = new String(regPinField.getPassword()).trim();
         String balStr = regBalanceField.getText().trim();
         String limitStr = regLimitField.getText().trim();
 
-        if (pin.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Please enter a 4-Digit PIN.", "Input Error", JOptionPane.ERROR_MESSAGE);
+        if (pin.isEmpty() || balStr.isEmpty() || limitStr.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please fill in all fields (PIN, Initial Deposit, and Daily Limit).", "Input Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if (!isValidPin(pin)) {
+            JOptionPane.showMessageDialog(this, "PIN must be exactly 4 digits (e.g., 1234).", "Input Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
         try {
-            Card card;
-            if (!balStr.isEmpty() && !limitStr.isEmpty()) {
-                double bal = Double.parseDouble(balStr);
-                double limit = Double.parseDouble(limitStr);
-                Account acc = new Account(cardNum, bal, limit);
-                card = new Card(cardNum, pin, acc);
-            } else {
-                card = new Card(cardNum, pin);
+            double bal = Double.parseDouble(balStr);
+            double limit = Double.parseDouble(limitStr);
+
+            if (bal < 0) {
+                JOptionPane.showMessageDialog(this, "Initial deposit cannot be negative.", "Input Error", JOptionPane.ERROR_MESSAGE);
+                return;
             }
+            if (limit <= 0) {
+                JOptionPane.showMessageDialog(this, "Daily limit must be greater than 0.", "Input Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            Account acc = new Account(cardNum, bal, limit);
+            Card card = new Card(cardNum, pin, acc);
 
             storeCard(card);
             JOptionPane.showMessageDialog(this, "Card and Account created successfully!\nYour Card Number is: " + cardNum 
@@ -614,6 +685,11 @@ public class ATMSystem extends JFrame {
 
         if (cardNum.isEmpty() || enteredPin.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Please enter Card Number and PIN.", "Input Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if (!isValidPin(enteredPin)) {
+            JOptionPane.showMessageDialog(this, "PIN must be exactly 4 digits.", "Input Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -643,7 +719,12 @@ public class ATMSystem extends JFrame {
         };
         int option = JOptionPane.showConfirmDialog(this, message, "PIN Required", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (option == JOptionPane.OK_OPTION) {
-            return new String(pinField.getPassword()).trim();
+            String entered = new String(pinField.getPassword()).trim();
+            if (!isValidPin(entered)) {
+                JOptionPane.showMessageDialog(this, "PIN must be exactly 4 digits.", "Invalid PIN", JOptionPane.ERROR_MESSAGE);
+                return "";
+            }
+            return entered;
         }
         return null;
     }
@@ -677,6 +758,51 @@ public class ATMSystem extends JFrame {
             }
         } catch (InterruptedException ex) {
             ex.printStackTrace();
+        }
+    }
+
+    private void handleDeposit() {
+        if (currentCard == null) {
+            return;
+        }
+
+        double amount;
+        try {
+            amount = Double.parseDouble(depositAmountField.getText().trim());
+            if (amount <= 0) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid deposit amount greater than 0.", "Input Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Invalid deposit amount entered.", "Input Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String pin = promptPin();
+        if (pin == null) {
+            return;
+        }
+
+        Deposit op = new Deposit(currentCard, pin, authenticator, amount, vault);
+        ATM atmThread = new ATM(currentAtmId, vault, op);
+
+        try {
+            atmThread.start();
+            atmThread.join();
+
+            Exception ex = atmThread.getExecutionException();
+            if (ex != null) {
+                if (ex instanceof InvalidPinException) {
+                    JOptionPane.showMessageDialog(this, ex.getMessage(), "InvalidPinException", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, ex.getMessage(), "Transaction Blocked", JOptionPane.ERROR_MESSAGE);
+                }
+            } else {
+                depositAmountField.setText("");
+                JOptionPane.showMessageDialog(this, atmThread.getResultMessage(), "Deposit Receipt", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
     }
 
@@ -719,6 +845,7 @@ public class ATMSystem extends JFrame {
                     JOptionPane.showMessageDialog(this, ex.getMessage(), "Transaction Blocked", JOptionPane.ERROR_MESSAGE);
                 }
             } else {
+                withdrawAmountField.setText("");
                 JOptionPane.showMessageDialog(this, atmThread.getResultMessage(), "Withdrawal Receipt", JOptionPane.INFORMATION_MESSAGE);
             }
         } catch (InterruptedException e) {
