@@ -646,7 +646,7 @@ public class ATMSystem extends JFrame {
         }
 
         if (!isValidPin(pin)) {
-            JOptionPane.showMessageDialog(this, "PIN must be exactly 4 digits (e.g., 1234).", "Input Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "PIN must be exactly 4 digits", "Input Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
