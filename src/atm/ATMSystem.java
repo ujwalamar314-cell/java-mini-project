@@ -101,11 +101,11 @@ class Card {
     }
 
     public Card(String cardNumber, String pin) {
-        this(cardNumber, pin, new Account(cardNumber, 5000.0, 5000.0));
+        this(cardNumber, pin, new Account(cardNumber, 0.0, 0.0));
     }
 
     public Card() {
-        this("0", "0000", new Account("0", 1000.0, 3000.0));
+        this("", "", null);
     }
 
     public String getCardNumber() {
@@ -261,9 +261,6 @@ public class ATMSystem extends JFrame {
         storedCards = new Card[100];
         storedCardCount = 0;
 
-        Account sampleAcc = new Account("0", 10000.0, 5000.0);
-        storeCard(new Card("0", "1234", sampleAcc));
-
         initUI();
     }
 
@@ -353,7 +350,7 @@ public class ATMSystem extends JFrame {
         btnPanel.add(btnGoLogin);
         panel.add(btnPanel, BorderLayout.CENTER);
 
-        JLabel footer = new JLabel("ATM Shared Synchronized Cash Vault", SwingConstants.CENTER);
+        JLabel footer = new JLabel("Cash Vault", SwingConstants.CENTER);
         footer.setFont(new Font("Segoe UI", Font.ITALIC, 12));
         footer.setForeground(Color.GRAY);
         panel.add(footer, BorderLayout.SOUTH);
@@ -386,11 +383,11 @@ public class ATMSystem extends JFrame {
         form.add(regPinField);
 
         form.add(new JLabel("Initial Deposit (Rs.):"));
-        regBalanceField = new JTextField("5000");
+        regBalanceField = new JTextField();
         form.add(regBalanceField);
 
         form.add(new JLabel("Daily Limit (Rs.):"));
-        regLimitField = new JTextField("5000");
+        regLimitField = new JTextField();
         form.add(regLimitField);
 
         panel.add(form, BorderLayout.CENTER);
@@ -519,7 +516,7 @@ public class ATMSystem extends JFrame {
         JPanel withdrawPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
         withdrawPanel.setBorder(BorderFactory.createTitledBorder("Cash Withdrawal"));
         withdrawPanel.add(new JLabel("Amount (Rs.):"));
-        withdrawAmountField = new JTextField("1000", 8);
+        withdrawAmountField = new JTextField(8);
         withdrawPanel.add(withdrawAmountField);
 
         JButton btnWithdraw = new JButton("Withdraw Cash");
@@ -579,6 +576,8 @@ public class ATMSystem extends JFrame {
             JOptionPane.showMessageDialog(this, "Card and Account created successfully!\nYour Card Number is: " + cardNum 
                 + "\nPlease use this Card Number to login.", "Account Created", JOptionPane.INFORMATION_MESSAGE);
             regPinField.setText("");
+            regBalanceField.setText("");
+            regLimitField.setText("");
             cardLayout.show(containerPanel, "HOME");
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this, "Invalid number entered for Balance or Limit.", "Input Error", JOptionPane.ERROR_MESSAGE);
